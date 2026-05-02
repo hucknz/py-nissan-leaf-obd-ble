@@ -45,6 +45,32 @@ if __name__ == "__main__":
 
 The default GATT service and characteristic UUIDs match the LeLink OBD BLE dongle. When used with the Home Assistant integration, the service and read/write characteristic UUIDs are configurable per device in the UI. For custom use, `async_get_data(options=None)` accepts an optional `options` dict with keys `service_uuid`, `characteristic_uuid_read`, and `characteristic_uuid_write`; omit keys to use the library defaults.
 
+## Custom commands
+
+`async_get_data()` accepts two optional parameters for adapting to different Leaf generations or adding new PIDs without modifying this package:
+
+- **`extra_commands`** — a `dict[str, OBDCommand]` that is merged with the default `leaf_commands`. Keys matching existing commands replace them; new keys are appended.
+- **`disabled_commands`** — a `set[str]` of command names to skip entirely.
+
+```python
+from py_nissan_leaf_obd_ble import NissanLeafObdBleApiClient
+from py_nissan_leaf_obd_ble.OBDCommand import OBDCommand
+
+def my_decoder(messages):
+    d = messages[0].data
+    return {"ambient_temp": (d[3] - 40) * 0.5}
+
+custom = {
+    "ambient_temp": OBDCommand(
+        "ambient_temp", "Ambient temperature", b"0322115e", 4, my_decoder, header=b"797"
+    )
+}
+
+data = await client.async_get_data(extra_commands=custom, disabled_commands={"unknown"})
+```
+
+When called from the Home Assistant integration, `extra_commands` and `disabled_commands` are populated automatically from the user's `overrides.yaml`; see the [integration README](https://github.com/pbutterworth/nissan-leaf-obd-ble) for details.
+
 ## License
 
 This package includes code derived from **python-OBD (a derivative of pyOBD)**,

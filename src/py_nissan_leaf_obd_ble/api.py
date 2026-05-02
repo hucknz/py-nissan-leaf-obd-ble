@@ -21,7 +21,12 @@ class NissanLeafObdBleApiClient:
         """Initialise."""
         self._ble_device = ble_device
 
-    async def async_get_data(self, options=None) -> dict | None:
+    async def async_get_data(
+        self,
+        options=None,
+        extra_commands: dict | None = None,
+        disabled_commands: set[str] | None = None,
+    ) -> dict | None:
         """Get data from the API."""
 
         if self._ble_device is None:
@@ -44,8 +49,14 @@ class NissanLeafObdBleApiClient:
             return None
 
         try:
+            commands = dict(leaf_commands)
+            if extra_commands:
+                commands.update(extra_commands)
+            if disabled_commands:
+                for name in disabled_commands:
+                    commands.pop(name, None)
             data = {}
-            for command in leaf_commands.values():
+            for command in commands.values():
                 response = await api.query(command, force=True)
                 # the first command is the Mystery command. If this doesn't have a response, then none of the other will
                 if command.name == "unknown" and len(response.messages) == 0:
