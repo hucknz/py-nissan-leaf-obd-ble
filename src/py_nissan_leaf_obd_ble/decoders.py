@@ -313,3 +313,9 @@ def lbc(messages):
         "hv_battery_voltage": int.from_bytes(d[20:22]) / 100,
     }
 
+# Decoders for CAN broadcast messages (multiple messages may be passed in, but only the first is used) to support ZE0/AZE0 generations
+def odometer_can_broadcast(messages):
+    """Decode odometer from CAN broadcast 0x5C5 (ZE0/AZE0 generations)."""
+    d = messages[0].data  # 8-byte raw CAN frame
+    v = (d[1] << 16) | (d[2] << 8) | d[3]
+    return {"odometer": v}

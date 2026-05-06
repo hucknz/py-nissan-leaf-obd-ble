@@ -205,6 +205,9 @@ class OBD:
             logger.warning("Query failed, no connection available")
             return OBDResponse()
 
+        if cmd.can_monitor:
+            return await self._query_can_broadcast(cmd)
+
         # if the user forces, skip all checks
         if not force and not self.test_cmd(cmd):
             return OBDResponse()
@@ -232,6 +235,30 @@ class OBD:
                 return OBDResponse()
 
         return cmd(messages)  # compute a response object
+
+    async def _query_can_broadcast(self, cmd):
+        """Read a passive CAN broadcast frame and decode it using the command decoder."""
+        if self.status() != OBDStatus.CAR_CONNECTED:
+            return OBDResponse()
+
+        if self.interface is None:
+            return OBDResponse()
+
+        lines = await self.interface.read_can_broadcast(cmd.command.decode())
+        if not lines:
+            return OBDResponse()
+
+        messages = self.interface.parse_lines(lines)
+        if not messages:
+            return OBDResponse()
+
+        parsed_messages = [m for m in messages if len(m.data) > 0]
+        if not parsed_messages:
+            return OBDResponse()
+
+        response = OBDResponse(cmd, parsed_messages)
+        response.value = cmd.decode(parsed_messages)
+        return response
 
     def __build_command_string(self, cmd):
         """Assemble the appropriate command string."""

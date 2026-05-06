@@ -48,7 +48,8 @@ class OBDCommand:
         command,
         _bytes,
         decoder,
-        header,
+        header=None,
+        can_monitor=False,
         fast=False,
     ) -> None:
         """Initialise."""
@@ -58,6 +59,7 @@ class OBDCommand:
         self.bytes = _bytes  # number of bytes expected in return
         self.decode = decoder  # decoding function
         self.header = header  # header used for the queries
+        self.can_monitor = can_monitor  # command is passive CAN monitor mode (no request/response)
         self.fast = fast  # can an extra digit be added to the end of the command? (to make the ELM return early)
 
     def clone(self):
@@ -69,6 +71,7 @@ class OBDCommand:
             self.bytes,
             self.decode,
             self.header,
+            self.can_monitor,
             self.fast,
         )
 
@@ -127,27 +130,29 @@ class OBDCommand:
 
     def __str__(self):
         """Return string representation of command."""
-        return str(f"{self.header + self.command}: {self.desc}")
+        header = self.header or b""
+        return str(f"{header + self.command}: {self.desc}")
 
     def __repr__(self):
         """Return representation of the command."""
-        return "OBDCommand(%s, %s, %s, %s, raw_string, fast=%s, header=%s)" % (
+        return "OBDCommand(%s, %s, %s, %s, raw_string, fast=%s, header=%s, can_monitor=%s)" % (
             repr(self.name),
             repr(self.desc),
             repr(self.command),
             self.bytes,
             self.fast,
             repr(self.header),
+            self.can_monitor,
         )
 
     def __hash__(self):
         """Return the hash of the command."""
         # needed for using commands as keys in a dict (see async.py)
-        return hash(self.header + self.command)
+        header = self.header or b""
+        return hash(header + self.command)
 
     def __eq__(self, other):
         """Equals check."""
         if isinstance(other, OBDCommand):
             return self.command == other.command and self.header == other.header
         return False
-

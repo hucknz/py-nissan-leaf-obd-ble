@@ -33,12 +33,14 @@
 import asyncio
 import logging
 import re
+import time
 
 from bleak.backends.device import BLEDevice
 
 from .bleserial import bleserial
 from .protocols.protocol import Message
 from .protocols.protocol_can import ISO_15765_4_11bit_500k
+from .utils import isHex
 
 logger = logging.getLogger(__name__)
 
@@ -321,6 +323,30 @@ class ELM327:
         lines = await self.__send(cmd)
         return self.__protocol(lines)
 
+    def parse_lines(self, lines) -> list[Message]:
+        """Parse already-collected adapter lines with the active protocol parser."""
+        return self.__protocol(lines)
+
+    async def read_can_broadcast(self, can_id: str, timeout: float = 2.0) -> list[str]:
+        """Passively read one CAN broadcast frame matching can_id."""
+        if self.__status == OBDStatus.NOT_CONNECTED:
+            logger.info("cannot read_can_broadcast() when unconnected")
+            return []
+
+        if self.__low_power:
+            await self.normal_power()
+
+        # Set receive address filter to only see this CAN ID.
+        await self.__send(b"AT CRA " + can_id.upper().encode())
+
+        # Start monitor mode and wait until at least one frame is seen or timeout elapses.
+        await self.__write(b"AT MA")
+        lines = await self.__read_with_timeout(timeout)
+
+        # Any character returns the adapter to command mode; empty command sends only CR.
+        await self.__send(b"")
+        return lines
+
     async def __send(self, cmd, delay=None, end_marker=ELM_PROMPT):
         """Unprotected send() function.
 
@@ -416,4 +442,54 @@ class ELM327:
         lines = [s.strip() for s in re.split("[\r\n]", string) if bool(s)]
 
         return lines
+
+    async def __read_with_timeout(self, timeout: float) -> list[str]:
+        """Read until timeout or first hexadecimal data line arrives."""
+        if not self.__port:
+            logger.info("cannot perform __read_with_timeout() when unconnected")
+            return []
+
+        buffer = bytearray()
+        deadline = time.monotonic() + timeout
+
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+
+            try:
+                data = await asyncio.wait_for(
+                    self.__port.read(self.__port.in_waiting or 1),
+                    timeout=remaining,
+                )
+            except TimeoutError:
+                break
+            except Exception:
+                self.__status = OBDStatus.NOT_CONNECTED
+                await self.__port.close()
+                self.__port = None
+                logger.critical("Device disconnected while reading")
+                return []
+
+            if not data:
+                break
+
+            buffer.extend(data)
+
+            if self.ELM_PROMPT in buffer:
+                break
+
+            string = re.sub(b"\x00", b"", buffer).decode("utf-8", "ignore")
+            lines = [s.strip() for s in re.split("[\r\n]", string) if bool(s.strip())]
+            if any(isHex(line.replace(" ", "")) for line in lines):
+                break
+
+        logger.debug("read_with_timeout: " + repr(buffer)[10:-1])
+
+        buffer = re.sub(b"\x00", b"", buffer)
+        if buffer.endswith(self.ELM_PROMPT):
+            buffer = buffer[:-1]
+
+        string = buffer.decode("utf-8", "ignore")
+        return [s.strip() for s in re.split("[\r\n]", string) if bool(s.strip())]
 
