@@ -315,7 +315,11 @@ def lbc(messages):
 
 # Decoders for CAN broadcast messages (multiple messages may be passed in, but only the first is used) to support ZE0/AZE0 generations
 def odometer_can_broadcast(messages):
-    """Decode odometer from CAN broadcast 0x5C5 (ZE0/AZE0 generations)."""
+    """Decode odometer from CAN broadcast 0x5C5 (ZE0/AZE0 generations).
+    
+    Odometer is a 3-byte big-endian value at payload offset 1-3.
+    Verified working on 2016 Nissan Leaf with 87786->87787 transition.
+    """
     d = messages[0].data  # 8-byte raw CAN frame
-    v = (d[1] << 16) | (d[2] << 8) | d[3]
+    v = int.from_bytes(d[1:4], byteorder='big', signed=False)
     return {"odometer": v}

@@ -201,6 +201,11 @@ class OBD:
     async def query(self, cmd, force=False):
         """Primary API function. Send commands to the car, and protect against sending unsupported commands."""
 
+        return await self.capture_command(cmd, force=force)
+
+    async def capture_command(self, cmd, force=False):
+        """Send a command and retain the raw adapter lines alongside the decoded response."""
+
         if self.status() == OBDStatus.NOT_CONNECTED:
             logger.warning("Query failed, no connection available")
             return OBDResponse()
@@ -216,10 +221,15 @@ class OBD:
 
         logger.info("Sending command: %s", cmd)
         cmd_string = self.__build_command_string(cmd)
-        messages = await self.interface.send_and_parse(cmd_string)
+        raw_lines = await self.interface.send_raw(cmd_string)
+        messages = self.interface.parse_lines(raw_lines)
+
+        response = OBDResponse(cmd, messages)
+        response.raw_lines = raw_lines or []
+
         if not messages:
             logger.info("No valid OBD Messages returned")
-            return OBDResponse()
+            return response
 
         for f in messages[0].frames:
             logger.debug("Received frame: %s", f.raw)
@@ -232,9 +242,11 @@ class OBD:
         for m in messages:
             if len(m.data) == 0 and (m.raw() == "NO DATA" or m.raw() == "CAN ERROR"):
                 logger.info("Vehicle not responding")
-                return OBDResponse()
+                return response
 
-        return cmd(messages)  # compute a response object
+        decoded_response = cmd(messages)  # applies command-specific message sizing before decode
+        decoded_response.raw_lines = response.raw_lines
+        return decoded_response
 
     async def _query_can_broadcast(self, cmd):
         """Read a passive CAN broadcast frame and decode it using the command decoder."""
@@ -246,18 +258,24 @@ class OBD:
 
         lines = await self.interface.read_can_broadcast(cmd.command.decode())
         if not lines:
-            return OBDResponse()
+            response = OBDResponse(cmd)
+            response.raw_lines = []
+            return response
 
         messages = self.interface.parse_lines(lines)
         if not messages:
-            return OBDResponse()
+            response = OBDResponse(cmd)
+            response.raw_lines = lines
+            return response
 
         parsed_messages = [m for m in messages if len(m.data) > 0]
         if not parsed_messages:
-            return OBDResponse()
+            response = OBDResponse(cmd, messages)
+            response.raw_lines = lines
+            return response
 
-        response = OBDResponse(cmd, parsed_messages)
-        response.value = cmd.decode(parsed_messages)
+        response = cmd(parsed_messages)
+        response.raw_lines = lines
         return response
 
     def __build_command_string(self, cmd):

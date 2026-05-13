@@ -43,6 +43,7 @@ class OBDResponse:
         """Initialise."""
         self.command = command
         self.messages = messages if messages else []
+        self.raw_lines = []
         self.value = None
         self.time = time.time()
 

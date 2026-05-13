@@ -1,0 +1,6 @@
+.DS_Store
+captures/*
+scripts/*
+tests/*
+.venv/*
+*__pycache__*

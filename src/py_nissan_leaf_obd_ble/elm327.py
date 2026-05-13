@@ -323,6 +323,10 @@ class ELM327:
         lines = await self.__send(cmd)
         return self.__protocol(lines)
 
+    async def send_raw(self, cmd, delay=None, end_marker=ELM_PROMPT):
+        """Send a command and return the raw adapter lines without parsing them."""
+        return await self.__send(cmd, delay=delay, end_marker=end_marker)
+
     def parse_lines(self, lines) -> list[Message]:
         """Parse already-collected adapter lines with the active protocol parser."""
         return self.__protocol(lines)
@@ -341,9 +345,23 @@ class ELM327:
 
         # Start monitor mode and wait until at least one frame is seen or timeout elapses.
         await self.__write(b"AT MA")
-        lines = await self.__read_with_timeout(timeout)
+        lines = await self.__read_with_timeout(timeout, stop_on_first_hex_line=True)
 
         # Any character returns the adapter to command mode; empty command sends only CR.
+        await self.__send(b"")
+        return lines
+
+    async def read_can_monitor(self, timeout: float = 2.0) -> list[str]:
+        """Passively read all monitor-mode CAN frames visible on the bus."""
+        if self.__status == OBDStatus.NOT_CONNECTED:
+            logger.info("cannot read_can_monitor() when unconnected")
+            return []
+
+        if self.__low_power:
+            await self.normal_power()
+
+        await self.__write(b"AT MA")
+        lines = await self.__read_with_timeout(timeout, stop_on_first_hex_line=False)
         await self.__send(b"")
         return lines
 
@@ -443,8 +461,12 @@ class ELM327:
 
         return lines
 
-    async def __read_with_timeout(self, timeout: float) -> list[str]:
-        """Read until timeout or first hexadecimal data line arrives."""
+    async def __read_with_timeout(
+        self,
+        timeout: float,
+        stop_on_first_hex_line: bool = True,
+    ) -> list[str]:
+        """Read until timeout or, optionally, the first hexadecimal data line arrives."""
         if not self.__port:
             logger.info("cannot perform __read_with_timeout() when unconnected")
             return []
@@ -476,12 +498,20 @@ class ELM327:
 
             buffer.extend(data)
 
-            if self.ELM_PROMPT in buffer:
+            # For monitor mode (stop_on_first_hex_line=False), don't exit on prompt;
+            # keep reading until timeout to collect all available frames.
+            if stop_on_first_hex_line and self.ELM_PROMPT in buffer:
                 break
 
             string = re.sub(b"\x00", b"", buffer).decode("utf-8", "ignore")
-            lines = [s.strip() for s in re.split("[\r\n]", string) if bool(s.strip())]
-            if any(isHex(line.replace(" ", "")) for line in lines):
+            # Only evaluate complete line(s). A trailing fragment like "5" may be the
+            # beginning of a CAN frame and should not end monitor capture early.
+            parts = re.split("[\r\n]", string)
+            complete_parts = (
+                parts if string.endswith("\r") or string.endswith("\n") else parts[:-1]
+            )
+            lines = [s.strip() for s in complete_parts if bool(s.strip())]
+            if stop_on_first_hex_line and any(isHex(line.replace(" ", "")) for line in lines):
                 break
 
         logger.debug("read_with_timeout: " + repr(buffer)[10:-1])
