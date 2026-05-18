@@ -30,6 +30,7 @@
 #                                                                      #
 ########################################################################
 
+import asyncio
 import logging
 
 from bleak.backends.device import BLEDevice
@@ -210,6 +211,9 @@ class OBD:
             logger.warning("Query failed, no connection available")
             return OBDResponse()
 
+        if cmd.kwp2000:
+            return await self._query_kwp2000(cmd)
+
         if cmd.can_monitor:
             return await self._query_can_broadcast(cmd)
 
@@ -245,6 +249,57 @@ class OBD:
                 return response
 
         decoded_response = cmd(messages)  # applies command-specific message sizing before decode
+        decoded_response.raw_lines = response.raw_lines
+        return decoded_response
+
+    async def _query_kwp2000(self, cmd):
+        """Execute a KWP2000 multi-step diagnostic sequence.
+        
+        For odometer: sends session start (0x0210C0) then data read (0x022101).
+        Requires explicit sequencing with responses between steps.
+        """
+        
+        # Set header to target ECU (0x743 for CAR-CAN odometer)
+        await self.__set_header(cmd.header)
+        
+        raw_lines_all = []
+        
+        # Step 1: Send session start (0x0210C0)
+        logger.info("KWP2000: Sending diagnostic session start (0x0210C0)")
+        raw_lines_session = await self.interface.send_raw(b"0210C0")
+        raw_lines_all.extend(raw_lines_session or [])
+        messages_session = self.interface.parse_lines(raw_lines_session)
+        
+        if not messages_session or not messages_session[0].data:
+            logger.warning("KWP2000: No response to session start - continuing anyway")
+        else:
+            logger.info(f"KWP2000: Session response ({len(messages_session)} msgs, {len(messages_session[0].data)} bytes): {messages_session[0].data.hex()}")
+        
+        # Small delay to ensure session is established
+        await asyncio.sleep(0.05)
+        
+        # Step 2: Send data read request (0x022101) 
+        logger.info("KWP2000: Sending data read request (0x022101)")
+        raw_lines_data = await self.interface.send_raw(cmd.command)
+        raw_lines_all.extend(raw_lines_data or [])
+        messages_data = self.interface.parse_lines(raw_lines_data)
+        
+        response = OBDResponse(cmd, messages_data)
+        response.raw_lines = raw_lines_all
+        
+        if not messages_data:
+            logger.info("KWP2000: No response to data read request")
+            return response
+        
+        logger.info(f"KWP2000: Data response ({len(messages_data)} msgs):")
+        for i, msg in enumerate(messages_data):
+            logger.info(f"  Message {i}: {len(msg.data)} bytes: {msg.data.hex()}")
+        
+        for f in messages_data[0].frames:
+            logger.debug("KWP2000: Received frame: %s", f.raw)
+        
+        # Decode the response
+        decoded_response = cmd(messages_data)
         decoded_response.raw_lines = response.raw_lines
         return decoded_response
 

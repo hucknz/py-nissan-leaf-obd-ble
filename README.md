@@ -71,6 +71,25 @@ data = await client.async_get_data(extra_commands=custom, disabled_commands={"un
 
 When called from the Home Assistant integration, `extra_commands` and `disabled_commands` are populated automatically from the user's `overrides.yaml`; see the [integration README](https://github.com/pbutterworth/nissan-leaf-obd-ble) for details.
 
+## Local verification script
+
+To verify that the package can capture every default data point from your BLE dongle, run:
+
+```bash
+./.venv/bin/python scripts/verify_leaf_capture.py --address AA:BB:CC:DD:EE:FF
+```
+
+The script queries each command in `leaf_commands` independently and prints a per-command status line. It exits non-zero if any command returns no data, unless you pass `--allow-missing`.
+
+For passive CAN-monitor commands (for example `odometer_can` on `0x5C5`), use retry polling to wait for a broadcast frame:
+
+```bash
+./.venv/bin/python scripts/verify_leaf_capture.py \
+    --address AA:BB:CC:DD:EE:FF \
+    --monitor-retries 20 \
+    --retry-delay 0.2
+```
+
 ## License
 
 This package includes code derived from **python-OBD (a derivative of pyOBD)**,

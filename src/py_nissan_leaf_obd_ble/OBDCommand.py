@@ -51,6 +51,7 @@ class OBDCommand:
         header=None,
         can_monitor=False,
         fast=False,
+        kwp2000=False,
     ) -> None:
         """Initialise."""
         self.name = name  # human readable name (also used as key in commands dict)
@@ -61,6 +62,7 @@ class OBDCommand:
         self.header = header  # header used for the queries
         self.can_monitor = can_monitor  # command is passive CAN monitor mode (no request/response)
         self.fast = fast  # can an extra digit be added to the end of the command? (to make the ELM return early)
+        self.kwp2000 = kwp2000  # command uses KWP2000 multi-step sequence (session start + data read)
 
     def clone(self):
         """Copy constructor."""
@@ -73,6 +75,7 @@ class OBDCommand:
             self.header,
             self.can_monitor,
             self.fast,
+            self.kwp2000,
         )
 
     @property
