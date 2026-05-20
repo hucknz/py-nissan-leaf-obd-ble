@@ -5,8 +5,8 @@ import logging
 
 from bleak.backends.device import BLEDevice
 
-from .commands import leaf_commands
 from .obd import OBD
+from .profiles import get_generation_commands, VALID_GENERATIONS, DEFAULT_GENERATION
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -24,13 +24,34 @@ class NissanLeafObdBleApiClient:
     async def async_get_data(
         self,
         options=None,
+        generation: str = DEFAULT_GENERATION,
         extra_commands: dict | None = None,
         disabled_commands: set[str] | None = None,
     ) -> dict | None:
-        """Get data from the API."""
+        """Get data from the API.
+        
+        Args:
+            options: BLE connection options (service_uuid, characteristic_uuid_read, characteristic_uuid_write)
+            generation: Nissan Leaf generation ('ze0', 'aze0', or 'ze1'). Defaults to 'ze1'.
+            extra_commands: dict of command overrides to merge with generation defaults
+            disabled_commands: set of command names to skip
+            
+        Returns:
+            dict of sensor readings, or None if connection fails
+            
+        Raises:
+            ValueError: if generation is not recognized
+        """
 
         if self._ble_device is None:
             return {}
+        
+        # Validate and retrieve generation-specific command table
+        if generation not in VALID_GENERATIONS:
+            raise ValueError(
+                f"Unknown generation '{generation}'. "
+                f"Valid options: {', '.join(sorted(VALID_GENERATIONS))}"
+            )
 
         opts = options or {}
         service_uuid = opts.get("service_uuid")
@@ -49,12 +70,13 @@ class NissanLeafObdBleApiClient:
             return None
 
         try:
-            commands = dict(leaf_commands)
-            if extra_commands:
-                commands.update(extra_commands)
-            if disabled_commands:
-                for name in disabled_commands:
-                    commands.pop(name, None)
+            # Get generation-specific command table with user overrides applied
+            commands = get_generation_commands(
+                generation,
+                extra_commands=extra_commands,
+                disabled_commands=disabled_commands,
+            )
+            
             data = {}
             for command in commands.values():
                 response = await api.query(command, force=True)
