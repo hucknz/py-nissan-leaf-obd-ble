@@ -47,11 +47,20 @@ The default GATT service and characteristic UUIDs match the LeLink OBD BLE dongl
 
 ## Vehicle Generation Selection
 
-This library supports multiple Nissan Leaf generations. You must specify your vehicle's generation when calling `async_get_data()`:
+This library supports multiple Nissan Leaf generations with automatic backwards-compatible mode:
 
-- **`ze0`** — 2010-2017 Nissan Leaf (original generation, uses passive CAN for odometer)
-- **`aze0`** — 2017-2018 Nissan Leaf (minor refresh, uses passive CAN for odometer)
-- **`ze1`** — 2018+ Nissan Leaf (current generation, uses active KWP2000 for odometer) — **default**
+### Automatic Mode (Default - Recommended)
+- **`auto`** — Automatic mode for all generations (default). Includes both active and passive odometer sources.
+  - **ZE0/AZE0 users** (2010-2018): Active query fails gracefully → passive CAN broadcast works ✓
+  - **ZE1 users** (2018+): Active query returns odometer efficiently ✓
+  - **Recommended** for existing integrations; no configuration needed.
+
+### Optimized Modes (Optional)
+For faster query times or reduced load on specific vehicle generations, you can specify an optimized profile:
+
+- **`ze0`** — 2010-2017 Nissan Leaf (uses passive CAN only, active query disabled)
+- **`aze0`** — 2017-2018 Nissan Leaf (uses passive CAN only, active query disabled)
+- **`ze1`** — 2018+ Nissan Leaf (uses active query only, passive monitor disabled)
 
 ```python
 import asyncio
@@ -67,11 +76,12 @@ async def main() -> None:
 
     client = NissanLeafObdBleApiClient(device)
     
-    # For a 2016 Leaf (ZE0 generation):
-    data = await client.async_get_data(generation="ze0")
+    # Default automatic mode (all generations supported):
+    data = await client.async_get_data()
     
-    # For a 2026 Leaf (ZE1 generation, or omit for default):
-    data = await client.async_get_data(generation="ze1")
+    # Or specify optimized profile for your generation:
+    data = await client.async_get_data(generation="ze1")  # Fast ZE1 profile
+    data = await client.async_get_data(generation="ze0")  # For 2016 Leaf
     
     print(data)
 
@@ -80,13 +90,15 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-When used with the Home Assistant integration, the user selects their vehicle's generation during setup configuration.
+**Note:** Specifying an optimized generation profile is optional. The default `auto` mode works with all Nissan Leaf generations and is recommended unless you have specific reasons to optimize for a particular generation.
 
 ## Custom commands
 
 `async_get_data()` accepts optional parameters for further customization:
 
-- **`generation`** — Vehicle generation: `'ze0'`, `'aze0'`, or `'ze1'` (defaults to `'ze1'`)
+- **`generation`** — Vehicle generation profile: `'auto'` (default), `'ze0'`, `'aze0'`, or `'ze1'`
+  - `'auto'`: Automatic mode for maximum compatibility (recommended)
+  - Other profiles: See [Vehicle Generation Selection](#vehicle-generation-selection) for details
 - **`extra_commands`** — a `dict[str, OBDCommand]` that is merged with the generation's default commands. Keys matching existing commands replace them; new keys are appended.
 - **`disabled_commands`** — a `set[str]` of command names to skip entirely.
 
@@ -104,6 +116,13 @@ custom = {
     )
 }
 
+# Using default automatic mode with custom command override:
+data = await client.async_get_data(
+    extra_commands=custom,
+    disabled_commands={"unknown"}
+)
+
+# Or with optimized ZE0 profile:
 data = await client.async_get_data(
     generation="ze0",
     extra_commands=custom,
@@ -118,24 +137,22 @@ When called from the Home Assistant integration, `extra_commands` and `disabled_
 To verify that the package can capture every default data point from your BLE dongle, run:
 
 ```bash
-# For ZE1 (2018+, default):
+# Default automatic mode (recommended for all generations):
 ./.venv/bin/python scripts/verify_leaf_capture.py --address AA:BB:CC:DD:EE:FF
 
-# For ZE0 (2010-2017):
+# Or specify optimized profile for your generation:
+./.venv/bin/python scripts/verify_leaf_capture.py --address AA:BB:CC:DD:EE:FF --generation ze1
 ./.venv/bin/python scripts/verify_leaf_capture.py --address AA:BB:CC:DD:EE:FF --generation ze0
-
-# For AZE0 (2017-2018):
 ./.venv/bin/python scripts/verify_leaf_capture.py --address AA:BB:CC:DD:EE:FF --generation aze0
 ```
 
-The script queries each command for your vehicle's generation and prints a per-command status line. It exits non-zero if any command returns no data, unless you pass `--allow-missing`.
+The script queries each command for the selected generation profile and prints a per-command status line. It exits non-zero if any command returns no data, unless you pass `--allow-missing`.
 
-For passive CAN-monitor commands (for example `odometer_can` on `0x5C5` in ZE0/AZE0 generations), use retry polling to wait for a broadcast frame:
+For passive CAN-monitor commands (for example `odometer_can` on `0x5C5` in auto or ZE0/AZE0 profiles), use retry polling to wait for a broadcast frame:
 
 ```bash
 ./.venv/bin/python scripts/verify_leaf_capture.py \
     --address AA:BB:CC:DD:EE:FF \
-    --generation ze0 \
     --monitor-retries 20 \
     --retry-delay 0.2
 ```

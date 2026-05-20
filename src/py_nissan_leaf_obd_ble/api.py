@@ -32,7 +32,13 @@ class NissanLeafObdBleApiClient:
         
         Args:
             options: BLE connection options (service_uuid, characteristic_uuid_read, characteristic_uuid_write)
-            generation: Nissan Leaf generation ('ze0', 'aze0', or 'ze1'). Defaults to 'ze1'.
+            generation: Nissan Leaf generation profile. Options:
+                - 'auto' (default): Automatic mode, includes both active and passive odometer sources.
+                  Recommended for maximum compatibility. ZE0/AZE0 users get working passive odometer,
+                  ZE1 users get fast active odometer (passive is redundant but harmless).
+                - 'ze0': Optimized for 2010-2017 Leaf (passive odometer only)
+                - 'aze0': Optimized for 2017-2018 Leaf (passive odometer only)  
+                - 'ze1': Optimized for 2018+ Leaf (active odometer only)
             extra_commands: dict of command overrides to merge with generation defaults
             disabled_commands: set of command names to skip
             

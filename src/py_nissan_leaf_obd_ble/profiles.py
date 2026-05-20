@@ -4,6 +4,7 @@ This module defines generation-specific command configurations for different
 Nissan Leaf generations (ZE0, AZE0, ZE1).
 
 Supported generations:
+  - auto: Automatic mode (default) - includes both odometer sources for maximum compatibility
   - ze0: 2010-2017 Nissan Leaf (original)
   - aze0: 2017-2018 Nissan Leaf (minor refresh)
   - ze1: 2018+ Nissan Leaf (major redesign, currently ZE1 platform)
@@ -16,6 +17,10 @@ Each profile specifies:
 When a generation is selected via async_get_data(generation="ze1"),
 the API will apply the appropriate profile's overrides to the default
 command table.
+
+The "auto" profile is recommended for existing integrations as it ensures
+backwards compatibility by including both active and passive odometer sources.
+Users can optionally specify their vehicle generation for optimized command sets.
 """
 
 import logging
@@ -27,42 +32,55 @@ from .OBDCommand import OBDCommand
 logger = logging.getLogger(__name__)
 
 
-# ZE1 (2018+) - Current default generation
+# ZE1 (2018+) - Optimized profile for newest generation
 # Uses KWP2000 multi-step session for odometer on header 0x743
 # Has full suite of modern ECU diagnostics
 PROFILE_ZE1 = {
     "name": "ZE1 (2018+)",
-    "description": "2018 and later Nissan Leaf (ZE1 platform)",
+    "description": "2018 and later Nissan Leaf (ZE1 platform, optimized profile)",
     "disabled_commands": {"odometer_can"},  # Use active KWP2000 instead
     "extra_commands": {},
 }
 
-# ZE0/AZE0 (2010-2018) - Original and refreshed generations
+# ZE0/AZE0 (2010-2018) - Optimized profiles for original and refreshed generations
 # Uses passive CAN broadcast 0x5C5 for odometer instead of KWP2000
 # May have different or missing PIDs on some ECUs
 PROFILE_ZE0 = {
     "name": "ZE0 (2010-2017)",
-    "description": "2010-2017 Nissan Leaf (ZE0 platform, original generation)",
+    "description": "2010-2017 Nissan Leaf (ZE0 platform, optimized profile)",
     "disabled_commands": {"odometer"},  # Use passive CAN broadcast instead
     "extra_commands": {},
 }
 
 PROFILE_AZE0 = {
     "name": "AZE0 (2017-2018)",
-    "description": "2017-2018 Nissan Leaf (AZE0 platform, minor refresh)",
+    "description": "2017-2018 Nissan Leaf (AZE0 platform, optimized profile)",
     "disabled_commands": {"odometer"},  # Use passive CAN broadcast instead
+    "extra_commands": {},
+}
+
+# AUTO (Default) - Backwards compatible mode
+# Includes both active and passive odometer sources for maximum compatibility
+# ZE0/AZE0 users: active query fails -> passive works ✓
+# ZE1 users: active query works -> passive is redundant but harmless ✓
+PROFILE_AUTO = {
+    "name": "Auto (All Generations)",
+    "description": "Automatic mode for maximum compatibility - includes both odometer sources",
+    "disabled_commands": set(),  # No commands disabled, get both odometer sources
     "extra_commands": {},
 }
 
 # Map of generation names to profiles
 PROFILES = {
+    "auto": PROFILE_AUTO,
     "ze0": PROFILE_ZE0,
     "aze0": PROFILE_AZE0,
     "ze1": PROFILE_ZE1,
 }
 
 # Default generation if not specified
-DEFAULT_GENERATION = "ze1"
+# "auto" provides maximum compatibility by including both odometer sources
+DEFAULT_GENERATION = "auto"
 
 VALID_GENERATIONS = set(PROFILES.keys())
 
